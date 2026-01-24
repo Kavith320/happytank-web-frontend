@@ -1,0 +1,127 @@
+@import "tailwindcss";
+
+/* ------------------------------
+   CSS Variables (Theme Tokens)
+--------------------------------*/
+:root {
+  /* Light theme */
+  --bg-main: #f4f8fc;
+  --bg-card: #ffffff;
+  --bg-accent: #27456b;
+
+  --text-main: #0f172a;
+  --text-muted: #475569;
+
+  --border-color: #e2e8f0;
+
+  --primary: #2563eb;
+  --success: #16a34a;
+  --danger: #dc2626;
+
+  --radius: 12px;
+}
+
+/* Dark mode */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg-main: #020617;
+    --bg-card: #020617;
+    --bg-accent: #1e293b;
+
+    --text-main: #e5e7eb;
+    --text-muted: #94a3b8;
+
+    --border-color: #1e293b;
+
+    --primary: #3b82f6;
+    --success: #22c55e;
+    --danger: #ef4444;
+  }
+}
+
+/* ------------------------------
+   Global Reset & Base Styles
+--------------------------------*/
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background-color: var(--bg-main);
+  color: var(--text-main);
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", Roboto, Helvetica, Arial, "Apple Color Emoji",
+    "Segoe UI Emoji";
+  -webkit-font-smoothing: antialiased;
+  line-height: 1.5;
+}
+
+/* ------------------------------
+   Common UI Elements
+--------------------------------*/
+
+/* Card (used everywhere) */
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  padding: 1rem;
+}
+
+/* Buttons */
+.btn {
+  border-radius: var(--radius);
+  padding: 0.5rem 1rem;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.btn-primary {
+  background: var(--primary);
+  color: white;
+}
+
+.btn-primary:hover {
+  opacity: 0.9;
+}
+
+/* Inputs */
+input,
+select {
+  background: transparent;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  padding: 0.5rem 0.75rem;
+  color: var(--text-main);
+}
+
+input:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+
+/* Muted text */
+.text-muted {
+  color: var(--text-muted);
+}
+
+/* Status colors (for tank state) */
+.status-ok {
+  color: var(--success);
+}
+
+.status-warn {
+  color: #facc15;
+}
+
+.status-error {
+  color: var(--danger);
+}
