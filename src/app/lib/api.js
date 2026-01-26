@@ -1,6 +1,25 @@
 import { getToken } from "./auth";
 
-const BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+// ✅ Your backend is on port 3000
+const BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000";
+
+async function safeJson(res) {
+  try {
+    return await res.json();
+  } catch {
+    return {};
+  }
+}
+
+function extractError(data, res) {
+  // Your backend returns: { ok:false, error:"..." }
+  // Some APIs return: { message:"..." }
+  return (
+    data?.error ||
+    data?.message ||
+    `Request failed (${res.status})`
+  );
+}
 
 export async function apiGet(path) {
   const token = getToken();
@@ -13,8 +32,8 @@ export async function apiGet(path) {
     },
   });
 
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data?.message || "Request failed");
+  const data = await safeJson(res);
+  if (!res.ok) throw new Error(extractError(data, res));
   return data;
 }
 
@@ -30,11 +49,10 @@ export async function apiPost(path, body) {
     body: JSON.stringify(body),
   });
 
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data?.message || "Request failed");
+  const data = await safeJson(res);
+  if (!res.ok) throw new Error(extractError(data, res));
   return data;
 }
-
 
 export async function apiPut(path, body) {
   return apiRequest(path, "PUT", body);
@@ -48,6 +66,7 @@ export async function apiDelete(path) {
 
 async function apiRequest(path, method, body) {
   const token = getToken();
+
   const res = await fetch(`${BASE}${path}`, {
     method,
     headers: {
@@ -57,7 +76,7 @@ async function apiRequest(path, method, body) {
     ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
   });
 
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data?.message || "Request failed");
+  const data = await safeJson(res);
+  if (!res.ok) throw new Error(extractError(data, res));
   return data;
 }

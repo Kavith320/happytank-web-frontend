@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { apiPost } from "../lib/api";
-import { saveToken } from "../lib/auth";
+import { saveToken, saveUser } from "../lib/auth";
 
 export default function SignupPage() {
   const router = useRouter();
@@ -27,22 +27,18 @@ export default function SignupPage() {
 
     setLoading(true);
     try {
-      // ✅ Change endpoint if your backend uses a different route
-      // example: /api/auth/register or /api/auth/signup
       const data = await apiPost("/api/auth/register", {
         name,
         email,
         password,
       });
 
-      // If backend returns token directly after register
-      if (data?.token) {
-        saveToken(data.token);
-        router.push("/home");
-      } else {
-        // If backend does NOT return token, go to login
-        router.push("/login");
-      }
+      // ✅ Expected success:
+      // { ok:true, token:"...", user:{..., userId8:"..."} }
+      if (data?.token) saveToken(data.token);
+      if (data?.user) saveUser(data.user);
+
+      router.push("/home");
     } catch (err) {
       setError(err.message || "Signup failed");
     } finally {

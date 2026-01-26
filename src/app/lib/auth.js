@@ -12,3 +12,20 @@ export function removeToken() {
   if (typeof window === "undefined") return;
   localStorage.removeItem("token");
 }
+
+// ✅ store user (includes userId8)
+export function saveUser(user) {
+  if (typeof window === "undefined") return;
+  localStorage.setItem("user", JSON.stringify(user));
+}
+
+export function getUser() {
+  if (typeof window === "undefined") return null;
+  const raw = localStorage.getItem("user");
+  return raw ? JSON.parse(raw) : null;
+}
+
+export function removeUser() {
+  if (typeof window === "undefined") return;
+  localStorage.removeItem("user");
+}
