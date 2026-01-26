@@ -5,7 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { apiGet, apiPost } from "../../lib/api";
 import { removeToken } from "../../lib/auth";
 
-// ✅ Lucide icons (install: npm i lucide-react)
+
 import {
   Thermometer,
   Sun,
@@ -186,7 +186,7 @@ function SensorChartModal({ open, sensorKey, points, onClose }) {
   const h = 320;
   const pad = 30;
 
-  // ✅ Stable now (no react-hooks/purity warning)
+
   const now = useMemo(() => Date.now(), []);
 
   const data = useMemo(() => (points || []).slice(-200), [points]);
