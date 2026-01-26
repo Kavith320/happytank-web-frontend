@@ -13,7 +13,6 @@ export function removeToken() {
   localStorage.removeItem("token");
 }
 
-// ✅ store user (includes userId8)
 export function saveUser(user) {
   if (typeof window === "undefined") return;
   localStorage.setItem("user", JSON.stringify(user));
