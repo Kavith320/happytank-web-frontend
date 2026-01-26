@@ -2,14 +2,11 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { removeToken, removeUser } from "../lib/auth";
 
-export default function LogoutPage() {
+export default function Page() {
   const router = useRouter();
 
   useEffect(() => {
-    removeToken();
-    removeUser();
     router.replace("/login");
   }, [router]);
 
