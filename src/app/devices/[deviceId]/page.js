@@ -91,9 +91,32 @@ function normalizeDevice(raw) {
   return raw?.device ?? raw ?? null;
 }
 
+function getActAuto(act) {
+  if (!act) return false;
+  if (typeof act?.default?.auto === "boolean") return act.default.auto;
+  if (typeof act?.auto === "boolean") return act.auto;
+  return false;
+}
+
+function getActDesiredState(act) {
+  if (!act) return "OFF";
+  if (act?.default?.state) return act.default.state.toString().toUpperCase();
+  if (act?.state) return act.state.toString().toUpperCase();
+  return "OFF";
+}
+
+function getActLiveState(actKey, telemetryActuators, act) {
+  const t = telemetryActuators?.[actKey];
+  if (t) return (typeof t === "object" ? t.state || "OFF" : t).toString().toUpperCase();
+  if (act?.state) return act.state.toString().toUpperCase();
+  if (act?.default?.state) return act.default.state.toString().toUpperCase();
+  return "OFF";
+}
+
 function normalizeActuators(device) {
   const fromControl = device?.control?.actuators;
   const fromConfig = device?.config?.actuators;
+  const fromTelemetry = device?.last_telemetry?.actuators || device?.telemetry?.actuators || {};
 
   const base =
     (fromControl && typeof fromControl === "object" ? fromControl : null) ||
@@ -102,10 +125,15 @@ function normalizeActuators(device) {
 
   const out = {};
   for (const [k, v] of Object.entries(base)) {
-    const state = (v?.state ?? "OFF").toString().toUpperCase();
+    const actAuto = getActAuto(v);
+    const actState = getActLiveState(k, fromTelemetry, v);
+    const actType = v?.type || fromConfig?.[k]?.type || fromControl?.[k]?.type || null;
+
     out[k] = {
-      state: state === "ON" ? "ON" : "OFF",
-      auto: Boolean(v?.auto ?? false),
+      state: actState === "ON" ? "ON" : "OFF",
+      auto: Boolean(actAuto),
+      type: actType,
+      default: v?.default || { auto: Boolean(actAuto), state: actState === "ON" ? "ON" : "OFF" },
     };
   }
   return out;
@@ -805,6 +833,23 @@ export default function DeviceDetailPage() {
   const [savingAct, setSavingAct] = useState({});
   const lastTelemetryFingerprint = useRef("");
 
+  const meta = useMemo(() => {
+    const cfg = device?.config || {};
+    const dev = cfg?.device || {};
+    const control = device?.control || {};
+    const last = device?.last_telemetry || {};
+
+    return {
+      id: device?.deviceId || dev?.device_id || deviceId,
+      name: dev?.name || dev?.model || deviceId,
+      model: dev?.model || "-",
+      firmware: dev?.firmware || "-",
+      cfgActuators: cfg?.actuators || {},
+      controlActuators: control?.actuators || {},
+      telemetryActuators: last?.actuators || {},
+    };
+  }, [device, deviceId]);
+
   const fetchAll = useCallback(
     async ({ silent = false } = {}) => {
       try {
@@ -814,7 +859,43 @@ export default function DeviceDetailPage() {
         }
 
         const dev = await apiGet(`/api/devices/${deviceId}`);
-        setDevice(normalizeDevice(dev));
+        const normalized = normalizeDevice(dev);
+
+        setDevice((prev) => {
+          if (!prev || Object.keys(savingAct).length === 0) return normalized;
+
+          const last = normalized.last_telemetry || {};
+          const acts = last.actuators || {};
+          const prevActs = prev.last_telemetry?.actuators || {};
+
+          const control = normalized.control || {};
+          const controlActs = control.actuators || {};
+          const prevControlActs = prev.control?.actuators || {};
+
+          const mergedControlActs = { ...controlActs };
+          const mergedTelemetryActs = { ...acts };
+
+          for (const busyKey of Object.keys(savingAct)) {
+            if (prevControlActs[busyKey]) {
+              mergedControlActs[busyKey] = prevControlActs[busyKey];
+            }
+            if (prevActs[busyKey]) {
+              mergedTelemetryActs[busyKey] = prevActs[busyKey];
+            }
+          }
+
+          return {
+            ...normalized,
+            control: {
+              ...control,
+              actuators: mergedControlActs,
+            },
+            last_telemetry: {
+              ...last,
+              actuators: mergedTelemetryActs,
+            },
+          };
+        });
 
         const tlm = await apiGet(`/api/devices/${deviceId}/telemetry?limit=10000`);
         const list =
@@ -844,7 +925,7 @@ export default function DeviceDetailPage() {
         setLoading(false);
       }
     },
-    [deviceId, router]
+    [deviceId, router, savingAct]
   );
 
   useEffect(() => {
@@ -852,7 +933,7 @@ export default function DeviceDetailPage() {
   }, [fetchAll]);
 
   useEffect(() => {
-    const id = setInterval(() => fetchAll({ silent: true }), 2500);
+    const id = setInterval(() => fetchAll({ silent: true }), 3500);
     return () => clearInterval(id);
   }, [fetchAll]);
 
@@ -890,60 +971,108 @@ export default function DeviceDetailPage() {
 
   const actuators = useMemo(() => normalizeActuators(device), [device]);
 
-  const sendControl = useCallback(
-    async (body) => {
+  function setLocalControlActuator(actKey, patch) {
+    setDevice((prev) => {
+      if (!prev) return prev;
+      const control = prev.control || {};
+      const acts = control.actuators || {};
+      const cur = acts[actKey] || {};
+      const def = cur.default || {};
+
+      return {
+        ...prev,
+        control: {
+          ...control,
+          actuators: {
+            ...acts,
+            [actKey]: {
+              ...cur,
+              ...(patch || {}),
+              default: { ...def, ...(patch?.default || {}) },
+            },
+          },
+        },
+      };
+    });
+  }
+
+  function setLocalTelemetryActuator(actKey, newState) {
+    setDevice((prev) => {
+      if (!prev) return prev;
+      const last = prev.last_telemetry || {};
+      const acts = last.actuators || {};
+      return {
+        ...prev,
+        last_telemetry: { ...last, actuators: { ...acts, [actKey]: newState } },
+      };
+    });
+  }
+
+  const sendActuatorPatch = useCallback(
+    async (actKey, { state, auto }) => {
       setError("");
-      return apiPost(`/api/devices/${deviceId}/control`, body);
+      setSavingAct((s) => ({ ...s, [actKey]: auto !== undefined ? "auto" : "state" }));
+
+      try {
+        const endpoint = `/api/devices/${deviceId}/control`;
+        const type =
+          meta.controlActuators?.[actKey]?.type || meta.cfgActuators?.[actKey]?.type;
+
+        const payload = {
+          actuators: {
+            [actKey]: {
+              ...(type ? { type } : {}),
+              auto,
+              state,
+              default: { auto, state },
+            },
+          },
+        };
+
+        await apiPost(endpoint, payload);
+      } catch (e) {
+        setError(`❌ Command failed: ${e.message || "Failed to update actuator"}`);
+      } finally {
+        setTimeout(() => {
+          setSavingAct((s) => {
+            const copy = { ...s };
+            delete copy[actKey];
+            return copy;
+          });
+        }, 4000);
+      }
     },
-    [deviceId]
+    [deviceId, meta]
   );
 
-  const toggleActState = async (name) => {
-    const current = actuators?.[name] || { state: "OFF", auto: false };
-    const nextState = current.state === "ON" ? "OFF" : "ON";
+  const toggleActAuto = async (name) => {
+    const act = meta.controlActuators?.[name] || meta.cfgActuators?.[name];
+    const currentAuto = getActAuto(act);
+    const nextAuto = !currentAuto;
+    const currentState = getActLiveState(name, meta.telemetryActuators, act) || "OFF";
 
-    setDevice((prev) => {
-      const copy = structuredClone(prev || {});
-      copy.control = copy.control || {};
-      copy.control.actuators = copy.control.actuators || {};
-      copy.control.actuators[name] = { ...current, state: nextState };
-      return copy;
-    });
-
-    setSavingAct((s) => ({ ...s, [name]: "state" }));
-    try {
-      await sendControl({ actuators: { [name]: { state: nextState, auto: current.auto } } });
-      fetchAll({ silent: true });
-    } catch (e) {
-      setError(e?.message || `Failed to update ${name}`);
-      fetchAll({ silent: true });
-    } finally {
-      setSavingAct((s) => ({ ...s, [name]: null }));
-    }
+    setLocalControlActuator(name, { auto: nextAuto, default: { auto: nextAuto, state: currentState } });
+    await sendActuatorPatch(name, { auto: nextAuto, state: currentState });
+    fetchAll({ silent: true });
   };
 
-  const toggleActAuto = async (name) => {
-    const current = actuators?.[name] || { state: "OFF", auto: false };
-    const nextAuto = !current.auto;
+  const toggleActState = async (name) => {
+    const act = meta.controlActuators?.[name] || meta.cfgActuators?.[name];
+    const auto = getActAuto(act);
 
-    setDevice((prev) => {
-      const copy = structuredClone(prev || {});
-      copy.control = copy.control || {};
-      copy.control.actuators = copy.control.actuators || {};
-      copy.control.actuators[name] = { ...current, auto: nextAuto };
-      return copy;
-    });
-
-    setSavingAct((s) => ({ ...s, [name]: "auto" }));
-    try {
-      await sendControl({ actuators: { [name]: { state: current.state, auto: nextAuto } } });
-      fetchAll({ silent: true });
-    } catch (e) {
-      setError(e?.message || `Failed to toggle auto for ${name}`);
-      fetchAll({ silent: true });
-    } finally {
-      setSavingAct((s) => ({ ...s, [name]: null }));
+    if (auto) {
+      setError("⚠️ Switch to MANUAL mode before manually toggling this actuator.");
+      return;
     }
+
+    const currentLiveState = getActLiveState(name, meta.telemetryActuators, act) || "OFF";
+    const nextState = currentLiveState === "ON" ? "OFF" : "ON";
+
+    setLocalTelemetryActuator(name, nextState);
+    setLocalControlActuator(name, { state: nextState, default: { state: nextState, auto } });
+
+    await sendActuatorPatch(name, { auto, state: nextState });
+    fetchAll({ silent: true });
   };
 
   // Feeder Pulse Countdown state
@@ -958,16 +1087,11 @@ export default function DeviceDetailPage() {
       setFeedingCountdowns((prev) => ({ ...prev, [name]: pulseSec }));
 
       // Optimistic ON
-      setDevice((prev) => {
-        const copy = structuredClone(prev || {});
-        copy.control = copy.control || {};
-        copy.control.actuators = copy.control.actuators || {};
-        copy.control.actuators[name] = { state: "ON", auto: false };
-        return copy;
-      });
+      setLocalTelemetryActuator(name, "ON");
+      setLocalControlActuator(name, { state: "ON", auto: false, default: { state: "ON", auto: false } });
 
       try {
-        await sendControl({ actuators: { [name]: { state: "ON", auto: false } } });
+        await sendActuatorPatch(name, { state: "ON", auto: false });
       } catch (e) {
         setError(e?.message || `Failed to trigger feeder`);
       }
@@ -990,16 +1114,11 @@ export default function DeviceDetailPage() {
           });
 
           // Turn OFF automatically and return slider
-          setDevice((prev) => {
-            const copy = structuredClone(prev || {});
-            copy.control = copy.control || {};
-            copy.control.actuators = copy.control.actuators || {};
-            copy.control.actuators[name] = { state: "OFF", auto: false };
-            return copy;
-          });
+          setLocalTelemetryActuator(name, "OFF");
+          setLocalControlActuator(name, { state: "OFF", auto: false, default: { state: "OFF", auto: false } });
 
           try {
-            await sendControl({ actuators: { [name]: { state: "OFF", auto: false } } });
+            await sendActuatorPatch(name, { state: "OFF", auto: false });
             fetchAll({ silent: true });
           } catch (e) {
             setError(e?.message || `Failed to reset feeder`);
@@ -1007,7 +1126,7 @@ export default function DeviceDetailPage() {
         }
       }, 1000);
     },
-    [feedingCountdowns, sendControl, fetchAll]
+    [feedingCountdowns, sendActuatorPatch, fetchAll]
   );
 
   // Clean up timers on unmount
