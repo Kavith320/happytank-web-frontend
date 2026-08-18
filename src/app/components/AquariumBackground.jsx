@@ -1,23 +1,30 @@
 "use client";
 
-import React, { useMemo } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 
 export default function AquariumBackground({
   showSeabed = true,
   density = "normal",
   subtle = false,
 }) {
-  // Generate randomized bubbles
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  // Generate bubbles on client mount only
   const bubbleCount = density === "dense" ? 22 : density === "sparse" ? 8 : 14;
   const bubbles = useMemo(() => {
+    if (!mounted) return [];
     return Array.from({ length: bubbleCount }).map((_, i) => ({
       id: i,
-      size: Math.floor(Math.random() * 20) + 6,
-      left: `${(i * (100 / bubbleCount) + Math.random() * 5).toFixed(1)}%`,
-      duration: `${(Math.random() * 8 + 8).toFixed(1)}s`,
-      delay: `${(Math.random() * 7).toFixed(1)}s`,
+      size: Math.floor(Math.random() * 18) + 8,
+      left: `${(i * (100 / bubbleCount) + Math.random() * 4).toFixed(1)}%`,
+      duration: `${(Math.random() * 6 + 8).toFixed(1)}s`,
+      delay: `${(Math.random() * 5).toFixed(1)}s`,
     }));
-  }, [bubbleCount]);
+  }, [bubbleCount, mounted]);
 
   return (
     <div className="fixed inset-0 pointer-events-none overflow-hidden z-0">
